@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GuideSight - Indoor Navigation for Visually Impaired</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 GuideSight</h1>
+            <p class="tagline">AI-Powered Indoor Navigation</p>
+            <div class="privacy-badge">🔒 100% Offline & Private</div>
+        </header>
+
+        <div class="main-content">
+            <!-- Video Feed -->
+            <div class="video-section">
+                <img src="{{ url_for('video_feed') }}" class="video-feed" alt="Camera Feed">
+                <div class="status-overlay" id="statusOverlay">
+                    <div class="mode-indicator" id="modeIndicator">IDLE</div>
+                    <div class="confidence-meter">
+                        <label>Confidence:</label>
+                        <div class="meter-bar">
+                            <div class="meter-fill" id="confidenceFill" style="width: 0%"></div>
+                        </div>
+                        <span id="confidenceValue">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Control Panel -->
+            <div class="control-panel">
+                <h2>Control Panel</h2>
+                
+                <!-- Mapping Mode -->
+                <div class="section mapping-section">
+                    <h3>📍 Mapping Mode</h3>
+                    <div class="input-group">
+                        <input type="text" id="locationName" placeholder="Enter location name (e.g., library)">
+                        <button onclick="startMapping()" class="btn btn-primary">Start Mapping</button>
+                    </div>
+                    <button onclick="stopMapping()" class="btn btn-secondary">Stop Mapping</button>
+                    <p class="info-text">Walk through the space to create a map</p>
+                </div>
+
+                <!-- Navigation Mode -->
+                <div class="section navigation-section">
+                    <h3>🧭 Navigation Mode</h3>
+                    <div class="input-group">
+                        <select id="destinationSelect">
+                            <option value="">Select destination...</option>
+                        </select>
+                        <button onclick="startNavigation()" class="btn btn-success">Start Navigation</button>
+                    </div>
+                    <button onclick="stopNavigation()" class="btn btn-secondary">Stop Navigation</button>
+                    <div class="instruction-box" id="instructionBox">
+                        <strong>Instruction:</strong>
+                        <p id="navigationInstruction">No active navigation</p>
+                    </div>
+                </div>
+
+                <!-- Voice Commands -->
+                <div class="section voice-section">
+                    <h3>🎤 Voice Commands</h3>
+                    <button onclick="listenVoiceCommand()" class="btn btn-voice">🎙️ Voice Command</button>
+                    <p class="info-text">
+                        Try: "Take me to library" or "Map this location as office"
+                    </p>
+                </div>
+
+                <!-- Emergency Button -->
+                <div class="section emergency-section">
+                    <button onclick="emergency()" class="btn btn-emergency">🚨 EMERGENCY</button>
+                </div>
+
+                <!-- Saved Locations -->
+                <div class="section locations-section">
+                    <h3>📂 Saved Locations</h3>
+                    <ul id="locationsList">
+                        <li>No locations saved yet</li>
+                    </ul>
+                    <button onclick="refreshLocations()" class="btn btn-small">Refresh</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Messages -->
+        <div class="messages" id="messages"></div>
+    </div>
+
+    <script>
+        // Update state every second
+        setInterval(updateState, 1000);
+        
+        // Load locations on start
+        refreshLocations();
+
+        function updateState() {
+            fetch('/api/state')
+                .then(response => response.json())
+                .then(data => {
+                    // Update mode indicator
+                    const modeIndicator = document.getElementById('modeIndicator');
+                    modeIndicator.textContent = data.mode.toUpperCase();
+                    modeIndicator.className = 'mode-indicator mode-' + data.mode;
+
+                    // Update confidence
+                    const confidence = data.localization_confidence || 0;
+                    document.getElementById('confidenceFill').style.width = confidence + '%';
+                    document.getElementById('confidenceValue').textContent = confidence + '%';
+
+                    // Update navigation instruction
+                    if (data.navigation_instruction) {
+                        document.getElementById('navigationInstruction').textContent = data.navigation_instruction;
+                    }
+
+                    // Update obstacle warnings
+                    if (data.obstacles && data.obstacles.length > 0) {
+                        const obs = data.obstacles[0];
+                        if (obs.distance < 1.5) {
+                            showMessage(`⚠️ ${obs.class.toUpperCase()} ahead at ${obs.distance.toFixed(1)}m!`, 'warning');
+                        }
+                    }
+                });
+        }
+
+        function startMapping() {
+            const locationName = document.getElementById('locationName').value.trim();
+            if (!locationName) {
+                showMessage('Please enter a location name', 'error');
+                return;
+            }
+
+            fetch('/api/start_mapping', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({location_name: locationName})
+            })
+            .then(response => response.json())
+            .then(data => {
+                showMessage(data.message, 'success');
+            });
+        }
+
+        function stopMapping() {
+            fetch('/api/stop_mapping', {method: 'POST'})
+                .then(response => response.json())
+                .then(data => {
+                    showMessage(data.message, 'success');
+                    refreshLocations();
+                });
+        }
+
+        function startNavigation() {
+            const destination = document.getElementById('destinationSelect').value;
+            if (!destination) {
+                showMessage('Please select a destination', 'error');
+                return;
+            }
+
+            fetch('/api/start_navigation', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({destination: destination})
+            })
+            .then(response => response.json())
+            .then(data => {
+                showMessage(data.message, data.status === 'success' ? 'success' : 'error');
+            });
+        }
+
+        function stopNavigation() {
+            fetch('/api/stop_navigation', {method: 'POST'})
+                .then(response => response.json())
+                .then(data => {
+                    showMessage(data.message, 'info');
+                });
+        }
+
+        function listenVoiceCommand() {
+            showMessage('Listening for voice command...', 'info');
+            fetch('/api/voice_command', {method: 'POST'})
+                .then(response => response.json())
+                .then(data => {
+                    showMessage(data.message, data.status === 'success' ? 'success' : 'error');
+                });
+        }
+
+        function emergency() {
+            if (confirm('Send emergency alert?')) {
+                fetch('/api/emergency', {method: 'POST'})
+                    .then(response => response.json())
+                    .then(data => {
+                        showMessage('🚨 EMERGENCY ALERT SENT', 'emergency');
+                    });
+            }
+        }
+
+        function refreshLocations() {
+            fetch('/api/locations')
+                .then(response => response.json())
+                .then(data => {
+                    const locationsList = document.getElementById('locationsList');
+                    const destinationSelect = document.getElementById('destinationSelect');
+                    
+                    // Update list
+                    if (data.locations.length === 0) {
+                        locationsList.innerHTML = '<li>No locations saved yet</li>';
+                    } else {
+                        locationsList.innerHTML = data.locations.map(loc => 
+                            `<li>📍 ${loc}</li>`
+                        ).join('');
+                    }
+
+                    // Update dropdown
+                    destinationSelect.innerHTML = '<option value="">Select destination...</option>' +
+                        data.locations.map(loc => 
+                            `<option value="${loc}">${loc}</option>`
+                        ).join('');
+                });
+        }
+
+        function showMessage(text, type = 'info') {
+            const messages = document.getElementById('messages');
+            const msg = document.createElement('div');
+            msg.className = 'message message-' + type;
+            msg.textContent = text;
+            messages.appendChild(msg);
+            
+            setTimeout(() => {
+                msg.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => msg.remove(), 300);
+            }, 4000);
+        }
+    </script>
+</body>
+</html>
